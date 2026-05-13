@@ -75,88 +75,66 @@ CATEGORIES = {
     ],
 }
 
-// JavaScript de extracción (selectores reales de Farmatodo)
+// JavaScript de extracción - Selectores CONFIRMADOS de Farmatodo Venezuela
 EXTRACT_JS = """
 () => {
     const results = [];
     const seen = new Set();
 
-    // Metodo 1: Selector nativo de Farmatodo
-    const infoLinks = document.querySelectorAll('a.product-card__info-link');
-    infoLinks.forEach(link => {
+    document.querySelectorAll('a.product-card__info-link').forEach(link => {
         const href = link.href || '';
         if (seen.has(href)) return;
         seen.add(href);
 
-        const card = link.closest('ftd-card-product, [class*="card-product"], [class*="product-card"]');
-        if (!card) return;
+        const card = link.closest('ftd-card-product, [class*="card-product"], [class*="product-card"]') || link.parentElement;
 
-        const paras = link.querySelectorAll('p');
-        const brand = paras[0] ? paras[0].innerText.trim() : '';
-        const name  = paras[1] ? paras[1].innerText.trim() : brand;
+        // Nombre y Marca (dentro del link de info)
+        const brand = (link.querySelector('.product-card__brand, p:first-child') || {}).innerText?.trim() || '';
+        const name  = (link.querySelector('.product-card__name, p:last-child')  || {}).innerText?.trim() || '';
 
-        // Lógica de precios de Farmatodo (ULTRA-ROBUSTA)
-        let price = '';
-        let oldPrice = '';
-        let discount = '';
+        // ── PRECIO FINAL (el que el cliente paga) ──────────────────
+        // .product-card__price es el span con el precio azul/actual
+        const priceEl    = link.querySelector('.product-card__price');
+        // .product-card__price-old es el span tachado (precio anterior)
+        const oldPriceEl = link.querySelector('.product-card__price-old');
 
-        // 1. Intentar por selectores conocidos
-        const finalPriceEl = card.querySelector('.product-card__price, .price, [class*="price-current"], .amount');
-        const oldPriceEl   = card.querySelector('.product-card__price-old, .price-old, [class*="price-old"], strike, s');
-        
-        if (finalPriceEl && finalPriceEl.innerText.includes('Bs.')) {
-            price = finalPriceEl.innerText.trim();
-            if (oldPriceEl) oldPrice = oldPriceEl.innerText.trim();
-        } 
-        
-        // 2. Si sigue vacío, buscar CUALQUIER span que tenga "Bs."
-        if (!price) {
-            const allSpans = Array.from(card.querySelectorAll('span, p, b, .text'));
-            const priceCandidates = allSpans
-                .filter(s => s.innerText.includes('Bs.') && /[0-9]/.test(s.innerText))
-                .map(s => ({
-                    text: s.innerText.trim(),
-                    val: parseFloat(s.innerText.replace(/[^0-9,]/g, '').replace(',', '.')) || 0,
-                    isStriked: window.getComputedStyle(s).textDecoration.includes('line-through') || s.className.includes('old') || s.closest('strike, s')
-                }));
+        let price    = priceEl    ? priceEl.innerText.trim()    : '';
+        let oldPrice = oldPriceEl ? oldPriceEl.innerText.trim() : '';
 
-            if (priceCandidates.length > 0) {
-                // El actual es el que NO está tachado y tiene valor > 0
-                const current = priceCandidates.find(p => !p.isStriked && p.val > 0) || priceCandidates.reduce((min, p) => (p.val > 0 && p.val < min.val) ? p : min, priceCandidates[0]);
-                price = current.text;
-                
-                // El anterior es el tachado o el más alto
-                const old = priceCandidates.find(p => (p.isStriked || p.val > current.val) && p.text !== price);
-                if (old) oldPrice = old.text;
+        // Seguridad: si el precio capturado es el alto y el viejo es vacío,
+        // y hay un badge con precio más bajo, invertir
+        if (price && oldPrice) {
+            const pVal = parseFloat(price.replace(/[^0-9]/g, '')) || 0;
+            const oVal = parseFloat(oldPrice.replace(/[^0-9]/g, '')) || 0;
+            if (pVal > oVal && oVal > 0) {
+                // Están invertidos, corregir
+                [price, oldPrice] = [oldPrice, price];
             }
         }
 
-        // 2. Identificar Descuento / Badge
-        const badge = card.querySelector('.product-card__discount, [class*="discount"], [class*="badge"], [class*="off"]');
-        if (badge) {
-            const bText = badge.innerText.trim();
-            if (bText.includes('%')) {
-                discount = bText;
-            } else if (oldPrice && price) {
-                const pVal = parseFloat(price.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-                const oVal = parseFloat(oldPrice.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-                if (oVal > pVal) discount = '-' + Math.round((1 - (pVal / oVal)) * 100) + '%';
-            }
+        // ── BADGE DE DESCUENTO ──────────────────────────────────────
+        // .product-card__badge contiene el porcentaje (ej: "20%")
+        const badgeEl = card ? card.querySelector('.product-card__badge, .product-card__discount, [class*="badge"]') : null;
+        let discount  = badgeEl ? badgeEl.innerText.trim() : '';
+        
+        // Si el badge tiene un precio (Bs.) en lugar de porcentaje, lo movemos a oldPrice
+        if (discount.includes('Bs.') && !oldPrice) {
+            oldPrice = discount;
+            // Calcular porcentaje
+            const pVal = parseFloat(price.replace(/[^0-9]/g, '')) || 0;
+            const oVal = parseFloat(oldPrice.replace(/[^0-9]/g, '')) || 0;
+            discount = oVal > pVal ? '-' + Math.round((1 - pVal/oVal) * 100) + '%' : '';
         }
-        const imgEl  = card.querySelector('img[src]');
+
+        // Imagen
+        const imgEl = card ? card.querySelector('img[src]') : null;
+        const image = imgEl ? imgEl.src : '';
 
         if (name || price) {
-            results.push({
-                name, 
-                brand, 
-                price, 
-                oldPrice, 
-                discount: discEl ? discEl.innerText.trim() : '', 
-                link: href, 
-                image: imgEl ? imgEl.src : ''
-            });
+            results.push({ name, brand, price, oldPrice, discount, link: href, image });
         }
     });
+
     return results;
 }
 """
