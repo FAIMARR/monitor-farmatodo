@@ -95,30 +95,40 @@ EXTRACT_JS = """
         const brand = paras[0] ? paras[0].innerText.trim() : '';
         const name  = paras[1] ? paras[1].innerText.trim() : brand;
 
-        // Lógica de precios de Farmatodo (ULTRA-PRECISIÓN)
+        // Lógica de precios de Farmatodo (ULTRA-ROBUSTA)
         let price = '';
         let oldPrice = '';
         let discount = '';
 
-        // 1. Intentar capturar por clases oficiales de Farmatodo
-        const finalPriceEl = card.querySelector('.product-card__price, .price, [class*="price-current"]');
+        // 1. Intentar por selectores conocidos
+        const finalPriceEl = card.querySelector('.product-card__price, .price, [class*="price-current"], .amount');
         const oldPriceEl   = card.querySelector('.product-card__price-old, .price-old, [class*="price-old"], strike, s');
         
-        if (finalPriceEl) {
+        if (finalPriceEl && finalPriceEl.innerText.includes('Bs.')) {
             price = finalPriceEl.innerText.trim();
             if (oldPriceEl) oldPrice = oldPriceEl.innerText.trim();
-        } else {
-            // Fallback: buscar números y tachados
-            const priceEls = Array.from(card.querySelectorAll('span')).filter(s => /[0-9]/.test(s.innerText) && s.innerText.includes('Bs.'));
-            const pricesFound = priceEls.map(el => ({
-                text: el.innerText.trim(),
-                val: parseFloat(el.innerText.replace(/[^0-9,]/g, '').replace(',', '.')) || 0,
-                isStriked: window.getComputedStyle(el).textDecoration.includes('line-through') || el.className.includes('old')
-            }));
-            const current = pricesFound.find(p => !p.isStriked) || pricesFound.reduce((min, p) => p.val < min.val ? p : min, pricesFound[0]);
-            const old = pricesFound.find(p => p.isStriked || p.val > current.val);
-            price = current ? current.text : '';
-            oldPrice = (old && old !== current) ? old.text : '';
+        } 
+        
+        // 2. Si sigue vacío, buscar CUALQUIER span que tenga "Bs."
+        if (!price) {
+            const allSpans = Array.from(card.querySelectorAll('span, p, b, .text'));
+            const priceCandidates = allSpans
+                .filter(s => s.innerText.includes('Bs.') && /[0-9]/.test(s.innerText))
+                .map(s => ({
+                    text: s.innerText.trim(),
+                    val: parseFloat(s.innerText.replace(/[^0-9,]/g, '').replace(',', '.')) || 0,
+                    isStriked: window.getComputedStyle(s).textDecoration.includes('line-through') || s.className.includes('old') || s.closest('strike, s')
+                }));
+
+            if (priceCandidates.length > 0) {
+                // El actual es el que NO está tachado y tiene valor > 0
+                const current = priceCandidates.find(p => !p.isStriked && p.val > 0) || priceCandidates.reduce((min, p) => (p.val > 0 && p.val < min.val) ? p : min, priceCandidates[0]);
+                price = current.text;
+                
+                // El anterior es el tachado o el más alto
+                const old = priceCandidates.find(p => (p.isStriked || p.val > current.val) && p.text !== price);
+                if (old) oldPrice = old.text;
+            }
         }
 
         // 2. Identificar Descuento / Badge
