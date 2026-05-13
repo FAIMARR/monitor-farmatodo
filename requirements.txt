@@ -1,0 +1,9 @@
+flask
+flask-cors
+playwright
+requests
+google-genai
+pandas
+openpyxl
+gspread
+oauth2client
