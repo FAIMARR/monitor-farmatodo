@@ -19,7 +19,7 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 @app.route("/")
 def serve_index():
-    return send_from_directory('.', 'índice.html')
+    return send_from_directory('.', 'index.html')
 
 BASE_URL = "https://www.farmatodo.com.ve"
 EXPORT_DIR = Path(__file__).parent / "exports"
