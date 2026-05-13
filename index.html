@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Farmatodo | Buscador de Productos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- ══ HEADER ══════════════════════════════════════════════════════ -->
+<header class="header">
+  <div class="header-inner">
+    <div class="logo">
+      <div class="logo-icon">F</div>
+      <div>
+        <div class="logo-title">Farmatodo</div>
+        <div class="logo-sub">Buscador de Productos</div>
+      </div>
+    </div>
+    <div class="header-badge">Venezuela</div>
+  </div>
+</header>
+
+<!-- ══ HERO ════════════════════════════════════════════════════════ -->
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-content">
+    <h1 class="hero-title">Consulta precios en tiempo real</h1>
+    <p class="hero-sub">Selecciona una categoría o busca un producto específico por nombre o marca</p>
+  </div>
+</section>
+
+<!-- ══ CONTROLES ═══════════════════════════════════════════════════ -->
+<main class="main">
+  <div class="card controls-card">
+
+    <!-- ── TABS ─────────────────────────────────── -->
+    <div class="tabs">
+      <button class="tab" data-tab="search">🔍 Búsqueda</button>
+      <button class="tab" data-tab="watchlist">⭐ Watchlist</button>
+      <button class="tab" data-tab="alerts">
+        🔔 Alertas <span id="alertBadge" class="badge-count" style="display:none">0</span>
+      </button>
+      <button class="tab" data-tab="history">🕒 Historial</button>
+    </div>
+
+    <!-- ══ TAB: BÚSQUEDA ══════════════════════════ -->
+    <div id="tab-search" class="tab-panel active">
+      <div class="search-row">
+        <div class="search-wrap">
+          <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input id="searchInput" type="text" placeholder="Buscar producto o marca... (ej: Nestlé, Panadol, shampoo)" autocomplete="off">
+          <button id="clearSearch" class="clear-btn" title="Limpiar">✕</button>
+        </div>
+      </div>
+      <div class="section-label">O elige una categoría:</div>
+      <div class="cat-grid" id="catGrid"></div>
+    </div>
+
+    <!-- ══ TAB: LISTA DE SEGUIMIENTO ══════════════ -->
+    <div id="tab-watchlist" class="tab-panel" style="display:none">
+      <div class="wl-header">
+        <div class="section-label" style="margin-bottom:0">Busca varios productos a la vez y guárdalos</div>
+        <button id="btnClearWatchlist" class="btn-ghost" title="Vaciar lista">Vaciar</button>
+      </div>
+
+      <div class="wl-input-row">
+        <input id="wlInput" type="text" class="wl-input" placeholder="Escribe un producto o marca y presiona Enter o +" autocomplete="off">
+        <button id="btnAddWl" class="btn btn-add">+ Agregar</button>
+      </div>
+
+      <div id="wlTags" class="wl-tags">
+        <!-- chips generados por JS -->
+      </div>
+
+      <div class="wl-bottom">
+        <span id="wlCount" class="wl-count">0 productos en la lista</span>
+        <div style="display:flex;gap:8px">
+          <button id="btnSaveWl" class="btn btn-outline">💾 Guardar lista</button>
+          <button id="btnSearchWl" class="btn btn-primary" disabled>
+            <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
+            Buscar lista completa
+          </button>
+        </div>
+      </div>
+
+      <!-- Listas guardadas -->
+      <div id="savedLists" class="saved-lists"></div>
+    </div>
+
+    <!-- TAB: ALERTAS -->
+    <div id="tab-alerts" class="tab-panel" style="display:none">
+      
+      <!-- Ticker de Precios (Bolsa) -->
+      <div class="ticker-wrap">
+        <div id="priceTicker" class="ticker">
+          <!-- Se llena por JS -->
+          <div class="ticker-item"><span class="ticker-name">INICIANDO MONITOR...</span></div>
+        </div>
+      </div>
+
+      <div class="trading-header">
+        <div>
+          <div class="live-indicator">
+            <div class="live-dot"></div>
+            <span>MONITOR LIVE</span>
+            <span id="liveClock" style="color:#888; font-weight:400">00:00:00</span>
+          </div>
+          <div class="modal-sub">Vigilancia activa de productos en Watchlist</div>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center">
+          <label class="btn-outline" style="display:flex; align-items:center; gap:8px; cursor:pointer; background:rgba(0,200,83,0.05)">
+            <input type="checkbox" id="monitorToggle"> <strong>MONITOREO ACTIVO</strong>
+          </label>
+          <button id="btnClearAlerts" class="btn-ghost" style="font-size:12px">Limpiar Todo</button>
+        </div>
+      </div>
+      
+      <!-- Dashboard de Alertas -->
+      <div id="alertsContainer" class="trading-grid">
+        <div class="history-empty">Esperando cambios de precio en el mercado...</div>
+      </div>
+    </div>
+
+    <!-- ══ TAB: HISTORIAL ══════════════════════════ -->
+    <div id="tab-history" class="tab-panel" style="display:none">
+      <div class="history-header">
+        <div class="section-label" style="margin-bottom:0">Búsquedas anteriores</div>
+        <button id="btnClearHistory" class="btn-ghost">Borrar todo</button>
+      </div>
+      <div id="historyList" class="history-list">
+        <!-- ítems generados por JS -->
+      </div>
+    </div>
+
+    <!-- ── BOTONES DE ACCIÓN ────────────────────── -->
+    <div class="action-row" id="actionRow">
+      <button id="btnSearch" class="btn btn-primary">
+        <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
+        Iniciar Búsqueda
+      </button>
+      <button id="btnCancel" class="btn btn-danger" style="display:none">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+        Detener
+      </button>
+      <button id="btnExport" class="btn btn-success" style="display:none">
+        <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Exportar Excel
+      </button>
+      <button id="btnGsheets" class="btn btn-gsheets" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="9" x2="9" y2="21"/></svg>
+        Enviar a Google Sheets
+      </button>
+      <button id="btnGsheetsConfig" class="btn btn-outline" title="Configurar Google Sheets">
+        ⚙️ Configurar Sheets
+      </button>
+      <button id="btnAiAnalyze" class="btn btn-ai" style="display:none" title="Detectar competidores con IA">
+        🤖 Analizar Competidores IA
+      </button>
+      <button id="btnAiConfig" class="btn btn-outline" title="Configurar Gemini API">
+        🔑 Configurar IA
+      </button>
+      <button id="btnWpConfig" class="btn btn-outline" title="Configurar WhatsApp" onclick="openWpModal()">
+        📱 WhatsApp
+      </button>
+    </div>
+  </div>
+
+  <!-- Barra de progreso -->
+  <div id="progressBar" class="progress-wrap" style="display:none">
+    <div class="progress-header">
+      <span id="progressMsg">Iniciando...</span>
+      <span id="progressPct">0%</span>
+    </div>
+    <div class="progress-track">
+      <div id="progressFill" class="progress-fill"></div>
+    </div>
+    <div class="progress-stats">
+      <span id="statsFound">0 productos encontrados</span>
+      <span id="statsTime">00:00</span>
+    </div>
+  </div>
+
+  <!-- Filtro de resultados -->
+  <div id="filterRow" class="filter-row" style="display:none">
+    <input id="filterInput" type="text" placeholder="Filtrar resultados..." class="filter-input">
+    <select id="sortSelect" class="sort-select">
+      <option value="">Ordenar por...</option>
+      <option value="name">Nombre A-Z</option>
+      <option value="price_asc">Precio menor</option>
+      <option value="price_desc">Precio mayor</option>
+      <option value="brand">Marca</option>
+      <option value="discount">Con descuento primero</option>
+    </select>
+    <div id="countBadge" class="count-badge">0 resultados</div>
+  </div>
+
+  <!-- Tabla de resultados -->
+  <div id="resultsWrap" class="card results-card" style="display:none">
+    <table id="resultsTable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Fecha/Hora</th>
+          <th>Imagen</th>
+          <th>Marca</th>
+          <th>Producto</th>
+          <th>SKU</th>
+          <th>Precio</th>
+          <th>Antes</th>
+          <th>Descuento</th>
+          <th>Subcategoría</th>
+          <th>Enlace</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+  <!-- Estado vacío -->
+  <div id="emptyState" class="empty-state" style="display:none">
+    <div class="empty-icon">🔍</div>
+    <div class="empty-title">Sin resultados</div>
+    <div class="empty-sub">Intenta con otra categoría o término de búsqueda</div>
+  </div>
+</main>
+
+<!-- ══ TOAST ════════════════════════════════════════════════════════ -->
+<div id="toast" class="toast"></div>
+
+<!-- ══ MODAL: CONFIGURACIÓN GOOGLE SHEETS ══════════════════════ -->
+<div id="modalOverlay" class="modal-overlay" style="display:none" onclick="closeModal()"> </div>
+<div id="gsheetsModal" class="modal" style="display:none">
+  <div class="modal-header">
+    <div>
+      <div class="modal-title">📊 Configurar Google Sheets</div>
+      <div class="modal-sub">Conecta la app con tu hoja de cálculo para guardar productos automáticamente</div>
+    </div>
+    <button class="modal-close" onclick="closeModal()">✕</button>
+  </div>
+
+  <div class="modal-body">
+    <!-- Paso 1 -->
+    <div class="setup-step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <div class="step-title">Crear cuenta de servicio en Google Cloud</div>
+        <div class="step-desc">Necesitas un archivo JSON de credenciales. Sigue estos pasos:</div>
+        <ol class="step-list">
+          <li>Ve a <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a></li>
+          <li>Crea un proyecto nuevo (ej: "Farmatodo Scraper")</li>
+          <li><strong>APIs y Servicios</strong> → Habilitar APIs → Busca y activa <em>"Google Sheets API"</em> y <em>"Google Drive API"</em></li>
+          <li><strong>Credenciales</strong> → Crear credenciales → <em>Cuenta de servicio</em> → descarga el JSON</li>
+        </ol>
+        <div class="step-field">
+          <label class="field-label">Ruta al archivo credentials.json</label>
+          <input id="cfgCredsPath" type="text" class="modal-input" placeholder="C:\Users\manue\Downloads\mi-proyecto-xxxxx.json">
+        </div>
+      </div>
+    </div>
+
+    <!-- Paso 2 -->
+    <div class="setup-step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <div class="step-title">Crear o abrir tu Google Sheet</div>
+        <div class="step-desc">Crea una hoja nueva en <a href="https://sheets.google.com" target="_blank">sheets.google.com</a>, luego <strong>compártela</strong> con el email de tu cuenta de servicio (está en el JSON, campo <code>client_email</code>). Dále permiso de <em>Editor</em>.</div>
+        <div class="step-field">
+          <label class="field-label">URL de la hoja de cálculo</label>
+          <input id="cfgSheetUrl" type="text" class="modal-input" placeholder="https://docs.google.com/spreadsheets/d/XXXXXX/edit">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-footer">
+    <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+    <button id="btnTestSheets" class="btn btn-outline">🔍 Probar conexión</button>
+    <button id="btnSaveGsheets" class="btn btn-primary">💾 Guardar configuración</button>
+  </div>
+</div>
+
+<!-- ══ MODAL: CONFIGURAR IA ════════════════════════════════════ -->
+<div id="aiConfigOverlay" class="modal-overlay" style="display:none" onclick="closeAiConfigModal()"></div>
+<div id="aiConfigModal" class="modal" style="display:none">
+  <div class="modal-header">
+    <div>
+      <div class="modal-title">🤖 Configurar Análisis IA de Competidores</div>
+      <div class="modal-sub">Usa Gemini para detectar competidores por significado, uso y propósito del producto</div>
+    </div>
+    <button class="modal-close" onclick="closeAiConfigModal()">✕</button>
+  </div>
+  <div class="modal-body">
+    <div class="setup-step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <div class="step-title">Obtener tu Gemini API Key</div>
+        <div class="step-desc">Ve a <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google AI Studio</a>, inicia sesión con tu cuenta Google y genera una API Key gratuita. Cópiala y pégala abajo.</div>
+        <div class="step-field" style="margin-top:12px">
+          <label class="field-label">Gemini API Key</label>
+          <input id="aiApiKeyInput" type="password" class="modal-input" placeholder="AIzaSy...">
+          <div id="aiKeyStatus" style="margin-top:6px;font-size:12px;color:#888"></div>
+        </div>
+      </div>
+    </div>
+    <div class="setup-step" style="background:linear-gradient(135deg,#f3eeff,#ede4ff);border-color:#c9b0ff">
+      <div class="step-num" style="background:#7b2ff7">💡</div>
+      <div class="step-body">
+        <div class="step-title">¿Qué detecta la IA?</div>
+        <div class="step-desc">La IA de Gemini analiza el nombre de cada producto y entiende <strong>para qué sirve</strong>, aunque tenga un nombre genérico o de marketing. Así puede agrupar, por ejemplo:</div>
+        <ul style="margin:8px 0 0 16px;font-size:13px;color:#555;line-height:1.8">
+          <li><strong>Voltarén Gel</strong> + <strong>Diclofenaco Crema</strong> → "Antiinflamatorio Tópico | 50g"</li>
+          <li><strong>Panadol Tab</strong> + <strong>Dolex 500mg</strong> → "Paracetamol Oral | 500mg"</li>
+          <li><strong>Agua Micelar</strong> + <strong>Garnier Agua Limpiadora</strong> → "Agua Micelar Desmaquillante"</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-outline" onclick="closeAiConfigModal()">Cancelar</button>
+    <button id="btnSaveAiKey" class="btn btn-ai">💾 Guardar API Key</button>
+  </div>
+</div>
+
+<!-- ══ MODAL: PROGRESO IA ═══════════════════════════════════════ -->
+<div id="aiProgressOverlay" class="modal-overlay" style="display:none"></div>
+<div id="aiProgressModal" class="modal ai-progress-modal" style="display:none">
+  <div class="modal-header">
+    <div>
+      <div class="modal-title">🤖 Analizando Competidores con IA</div>
+      <div class="modal-sub" id="aiProgressSubtitle">Gemini está procesando los productos en lotes...</div>
+    </div>
+  </div>
+  <div class="modal-body" style="padding:16px 24px">
+    <div class="ai-progress-track">
+      <div id="aiProgressFill" class="ai-progress-fill" style="width:0%"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:13px;color:#666">
+      <span id="aiProgressMsg">Iniciando...</span>
+      <span id="aiProgressPct">0%</span>
+    </div>
+    <div id="aiResultsPreview" class="ai-results-preview">
+      <!-- Resultados en tiempo real -->
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button id="btnCancelAi" class="btn btn-danger">⏹ Detener</button>
+    <button id="btnExportAiSheets" class="btn btn-ai" style="display:none">
+      📊 Exportar a Google Sheets
+    </button>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+  <!-- ══ MODAL: EMAIL ════════════════════════════ -->
+  <div id="emailModal" class="modal" style="display:none">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">📧 Configurar Alertas por Correo</div>
+        <div class="modal-sub">Usa tu cuenta de Gmail/Outlook para alertas GRATIS</div>
+      </div>
+      <button class="modal-close" onclick="closeEmailModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="setup-step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">Servidor de Salida (SMTP)</div>
+          <div style="display:grid; grid-template-columns: 2fr 1fr; gap:10px">
+            <div class="form-group">
+              <label>Servidor SMTP</label>
+              <input type="text" id="mailSmtp" placeholder="smtp.gmail.com" class="wl-input" style="width:100%">
+            </div>
+            <div class="form-group">
+              <label>Puerto</label>
+              <input type="number" id="mailPort" placeholder="587" class="wl-input" style="width:100%">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="setup-step" style="margin-top:20px">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">Cuenta de Envío</div>
+          <div class="form-group">
+            <label>Tu Correo Electrónico</label>
+            <input type="text" id="mailSender" placeholder="tu_usuario@gmail.com" class="wl-input" style="width:100%">
+          </div>
+          <div class="form-group" style="margin-top:12px">
+            <label>Contraseña de Aplicación <small>(no tu clave normal)</small></label>
+            <input type="password" id="mailPass" placeholder="Tu contraseña de app" class="wl-input" style="width:100%">
+          </div>
+        </div>
+      </div>
+      <div class="setup-step" style="margin-top:20px">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">Destinatario</div>
+          <div class="form-group">
+            <label>Enviar Alertas A:</label>
+            <input type="text" id="mailReceiver" placeholder="tu_correo_personal@gmail.com" class="wl-input" style="width:100%">
+          </div>
+          <div style="margin-top:15px; display:flex; align-items:center; gap:10px; background:rgba(46,109,180,0.05); padding:10px; border-radius:8px">
+            <input type="checkbox" id="mailEnabled" style="width:20px; height:20px; cursor:pointer">
+            <label for="mailEnabled" style="cursor:pointer; font-weight:700; color:var(--accent)">Habilitar Alertas por Email</label>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" style="padding:20px; display:flex; justify-content:flex-end; gap:12px; border-top:1px solid var(--border)">
+      <button class="btn-ghost" onclick="closeEmailModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveEmailConfig()">Guardar Configuración</button>
+    </div>
+  </div>
+</body>
+</html>
