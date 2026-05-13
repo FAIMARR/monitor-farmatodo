@@ -14,7 +14,7 @@ from flask import Flask, Response, jsonify, request, send_file, send_from_direct
 from flask_cors import CORS
 from playwright.async_api import async_playwright, TimeoutError as PWT
 
-app = Flask(__name__, static_folder='.', template_folder='templates')
+app = Flask(__name__, static_folder='.', static_url_path='', template_folder='templates')
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 @app.route("/")
