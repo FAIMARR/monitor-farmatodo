@@ -14,12 +14,12 @@ from flask import Flask, Response, jsonify, request, send_file, send_from_direct
 from flask_cors import CORS
 from playwright.async_api import async_playwright, TimeoutError as PWT
 
-app = Flask(__name__, static_folder='static', template_folder='templates')
+app = Flask(__name__, static_folder='.', template_folder='templates')
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 @app.route("/")
 def serve_index():
-    return send_from_directory('static', 'index.html')
+    return send_from_directory('.', 'índice.html')
 
 BASE_URL = "https://www.farmatodo.com.ve"
 EXPORT_DIR = Path(__file__).parent / "exports"
