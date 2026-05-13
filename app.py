@@ -679,8 +679,15 @@ async def _scrape(session_id: str, urls: list[str], search_query: str = ""):
             
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                await asyncio.sleep(2)
+                # Scroll suave para activar la carga de productos
+                await page.evaluate("window.scrollBy(0, 1000)")
+                await asyncio.sleep(3)
                 
+                # Esperar a que aparezca al menos un producto (opcional)
+                try:
+                    await page.wait_for_selector('a.product-card__info-link', timeout=5000)
+                except: pass
+
                 # Extraer datos usando el JS optimizado
                 products = await page.evaluate(EXTRACT_JS)
                 for p in products:
