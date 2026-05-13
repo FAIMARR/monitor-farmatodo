@@ -75,65 +75,126 @@ CATEGORIES = {
     ],
 }
 
-// JavaScript de extracción - Selectores CONFIRMADOS de Farmatodo Venezuela
+# JavaScript de extracción - Multi-estrategia con fallbacks
 EXTRACT_JS = """
 () => {
     const results = [];
     const seen = new Set();
 
+    // ── ESTRATEGIA 1: Selector nativo a.product-card__info-link ──────────
     document.querySelectorAll('a.product-card__info-link').forEach(link => {
         const href = link.href || '';
         if (seen.has(href)) return;
         seen.add(href);
 
+        // Subir al card contenedor
         const card = link.closest('ftd-card-product, [class*="card-product"], [class*="product-card"]') || link.parentElement;
 
-        // Nombre y Marca (dentro del link de info)
-        const brand = (link.querySelector('.product-card__brand, p:first-child') || {}).innerText?.trim() || '';
-        const name  = (link.querySelector('.product-card__name, p:last-child')  || {}).innerText?.trim() || '';
+        // Nombre y Marca — están en los <p> dentro del link
+        const paras = Array.from(link.querySelectorAll('p'));
+        const brand = paras[0] ? paras[0].innerText.trim() : '';
+        const name  = paras[1] ? paras[1].innerText.trim() : (paras[0] ? paras[0].innerText.trim() : '');
 
-        // ── PRECIO FINAL (el que el cliente paga) ──────────────────
-        // .product-card__price es el span con el precio azul/actual
-        const priceEl    = link.querySelector('.product-card__price');
-        // .product-card__price-old es el span tachado (precio anterior)
-        const oldPriceEl = link.querySelector('.product-card__price-old');
+        // Precios — buscar en TODO el card (no solo en el link)
+        let price = '', oldPrice = '', discount = '';
 
-        let price    = priceEl    ? priceEl.innerText.trim()    : '';
-        let oldPrice = oldPriceEl ? oldPriceEl.innerText.trim() : '';
+        // Buscar precio final (azul) en el card
+        const priceEl = card ? card.querySelector(
+            '.product-card__price, .price-current, [class*="price-current"], [class*="sale-price"]'
+        ) : null;
+        // Buscar precio anterior (tachado) en el card
+        const oldEl = card ? card.querySelector(
+            '.product-card__price-old, .price-old, [class*="price-old"], strike, s, del'
+        ) : null;
 
-        // Seguridad: si el precio capturado es el alto y el viejo es vacío,
-        // y hay un badge con precio más bajo, invertir
-        if (price && oldPrice) {
-            const pVal = parseFloat(price.replace(/[^0-9]/g, '')) || 0;
-            const oVal = parseFloat(oldPrice.replace(/[^0-9]/g, '')) || 0;
-            if (pVal > oVal && oVal > 0) {
-                // Están invertidos, corregir
-                [price, oldPrice] = [oldPrice, price];
+        if (priceEl && /[0-9]/.test(priceEl.innerText)) {
+            price = priceEl.innerText.trim();
+        }
+        if (oldEl && /[0-9]/.test(oldEl.innerText)) {
+            oldPrice = oldEl.innerText.trim();
+        }
+
+        // Si no encontramos precios por clase, buscar todos los "Bs." en el card
+        if (!price && card) {
+            const bsEls = Array.from(card.querySelectorAll('span, p, b'))
+                .filter(el => el.childElementCount === 0 && el.innerText.includes('Bs.') && /[0-9]/.test(el.innerText));
+            
+            const mapped = bsEls.map(el => ({
+                el,
+                text: el.innerText.trim(),
+                val: parseFloat(el.innerText.replace(/[^0-9,.]/g, '').replace(/\./g, '').replace(',', '.')) || 0,
+                striked: window.getComputedStyle(el).textDecoration.includes('line-through')
+                      || !!el.closest('strike, s, del')
+                      || el.className.toString().toLowerCase().includes('old')
+            }));
+
+            const actuals = mapped.filter(m => !m.striked && m.val > 0);
+            const olds    = mapped.filter(m => m.striked);
+
+            if (actuals.length > 0) {
+                // El precio final es el MENOR de los actuales
+                const current = actuals.reduce((min, m) => m.val < min.val ? m : min, actuals[0]);
+                price = current.text;
+                
+                // El anterior puede ser el tachado o el mayor
+                const oldCand = olds[0] || mapped.find(m => m.val > current.val && m.text !== price);
+                if (oldCand) oldPrice = oldCand.text;
             }
         }
 
-        // ── BADGE DE DESCUENTO ──────────────────────────────────────
-        // .product-card__badge contiene el porcentaje (ej: "20%")
-        const badgeEl = card ? card.querySelector('.product-card__badge, .product-card__discount, [class*="badge"]') : null;
-        let discount  = badgeEl ? badgeEl.innerText.trim() : '';
-        
-        // Si el badge tiene un precio (Bs.) en lugar de porcentaje, lo movemos a oldPrice
-        if (discount.includes('Bs.') && !oldPrice) {
-            oldPrice = discount;
-            // Calcular porcentaje
-            const pVal = parseFloat(price.replace(/[^0-9]/g, '')) || 0;
-            const oVal = parseFloat(oldPrice.replace(/[^0-9]/g, '')) || 0;
-            discount = oVal > pVal ? '-' + Math.round((1 - pVal/oVal) * 100) + '%' : '';
+        // Si el precio final es MAYOR que el anterior (están invertidos), intercambiar
+        if (price && oldPrice) {
+            const pv = parseFloat(price.replace(/[^0-9,.]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+            const ov = parseFloat(oldPrice.replace(/[^0-9,.]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+            if (pv > ov && ov > 0) { [price, oldPrice] = [oldPrice, price]; }
+        }
+
+        // Badge de descuento en el card
+        const badgeEl = card ? card.querySelector('[class*="badge"], [class*="discount"], [class*="off"], [class*="porcent"]') : null;
+        if (badgeEl) {
+            const bText = badgeEl.innerText.trim();
+            if (bText.includes('%')) {
+                discount = bText;
+            } else if (bText.includes('Bs.') && !oldPrice) {
+                oldPrice = bText;
+                const pv = parseFloat(price.replace(/[^0-9,.]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+                const ov = parseFloat(bText.replace(/[^0-9,.]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+                if (ov > pv && pv > 0) discount = '-' + Math.round((1 - pv/ov) * 100) + '%';
+            }
         }
 
         // Imagen
         const imgEl = card ? card.querySelector('img[src]') : null;
-        const image = imgEl ? imgEl.src : '';
 
         if (name || price) {
-            results.push({ name, brand, price, oldPrice, discount, link: href, image });
+            results.push({ name, brand, price, oldPrice, discount, link: href, image: imgEl ? imgEl.src : '' });
         }
     });
+
+    // ── ESTRATEGIA 2: Fallback con tarjetas genéricas ─────────────────────
+    if (results.length === 0) {
+        const sels = ['ftd-card-product', 'app-card-product', '[class*="product-card"]', '[class*="card-product"]'];
+        let cards = [];
+        for (const s of sels) {
+            const found = [...document.querySelectorAll(s)];
+            if (found.length) { cards = found; break; }
+        }
+        cards.forEach(card => {
+            const a = card.querySelector('a[href]');
+            const href = a ? a.href : '';
+            if (seen.has(href)) return;
+            seen.add(href);
+
+            const ps = [...card.querySelectorAll('p, h3, h4')];
+            const brand = ps[0] ? ps[0].innerText.trim() : '';
+            const name  = ps[1] ? ps[1].innerText.trim() : brand;
+            const sps   = [...card.querySelectorAll('span')].filter(s => /[0-9]/.test(s.innerText) && s.innerText.includes('Bs.'));
+            const price    = sps[0] ? sps[0].innerText.trim() : '';
+            const oldPrice = sps[1] ? sps[1].innerText.trim() : '';
+            const img   = (card.querySelector('img[src]') || {}).src || '';
+            if (name || price) results.push({ name, brand, price, oldPrice, discount: '', link: href, image: img });
+        });
+    }
 
     return results;
 }
