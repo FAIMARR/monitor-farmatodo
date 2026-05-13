@@ -265,7 +265,15 @@ def _load_email_config():
 
 def _send_email_notification(subject, html_content):
     cfg = _load_email_config()
-    if not cfg.get("enabled") or not cfg.get("sender_email"): return
+    if not cfg.get("enabled"): return False
+    
+    # Procesar múltiples destinatarios (separados por comas)
+    receivers_raw = cfg.get("receiver_email", "")
+    receivers = [r.strip() for r in receivers_raw.split(",") if "@" in r]
+    
+    if not receivers: 
+        print("[Email] No hay destinatarios válidos.")
+        return False
 
     try:
         import smtplib
@@ -273,8 +281,8 @@ def _send_email_notification(subject, html_content):
         from email.mime.multipart import MIMEMultipart
 
         msg = MIMEMultipart()
-        msg['From'] = cfg['sender_email']
-        msg['To'] = cfg['receiver_email']
+        msg['From'] = cfg.get("sender_email")
+        msg['To'] = ", ".join(receivers)
         msg['Subject'] = subject
 
         msg.attach(MIMEText(html_content, 'html'))
@@ -397,11 +405,14 @@ def _monitor_loop_sync():
                 # Ejecutamos el scrape unitario de forma síncrona dentro del loop
                 async def check_single(u):
                     async with async_playwright() as p:
-                        browser = await p.chromium.launch(headless=True)
-                        page = await browser.new_page()
+                        browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+                        context = await browser.new_context(
+                            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                        )
+                        page = await context.new_page()
                         try:
-                            await page.goto(u, timeout=45000)
-                            await asyncio.sleep(3)
+                            await page.goto(u, timeout=45000, wait_until="networkidle")
+                            await asyncio.sleep(2)
                             data = await page.evaluate(EXTRACT_JS)
                             return data[0] if data else None
                         except: return None
@@ -691,19 +702,17 @@ async def _scrape(session_id: str, urls: list[str], search_query: str = ""):
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
-            headless=False,
+            headless=True,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
-                "--window-position=-32000,-32000",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
             ]
         )
         context = await browser.new_context(
             viewport={"width": 1440, "height": 900},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-            ),
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             locale="es-VE",
         )
         page = await context.new_page()
@@ -1477,6 +1486,29 @@ def save_email_config():
     _save_json(EMAIL_CONFIG_FILE, cfg)
     _sync_state_to_sheets() # RESPALDO EN NUBE
     return jsonify({"ok": True})
+
+@app.route("/api/email/test", methods=["POST"])
+def test_email_notification():
+    try:
+        watchlist = _load_json(WATCHLIST_FILE, [])
+        if not watchlist:
+            return jsonify({"ok": False, "error": "Tu Watchlist está vacía. Agrega productos primero."})
+        
+        # Enviar el primer producto como prueba o un resumen
+        prod = watchlist[0]
+        success = _send_email_notification(
+            product_name=f"[PRUEBA] {prod.get('name', 'Producto')}",
+            old_price="10.00",
+            new_price=prod.get('price', '0.00'),
+            image_url=prod.get('image', ''),
+            link=prod.get('link', BASE_URL)
+        )
+        if success:
+            return jsonify({"ok": True})
+        else:
+            return jsonify({"ok": False, "error": "Error en el servidor SMTP. Revisa tus credenciales."})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
 if __name__ == "__main__":
