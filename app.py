@@ -18,7 +18,7 @@ app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 @app.route("/")
-def index():
+def serve_index():
     return send_from_directory('static', 'index.html')
 
 BASE_URL = "https://www.farmatodo.com.ve"
