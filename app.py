@@ -75,52 +75,66 @@ CATEGORIES = {
     ],
 }
 
-# JavaScript de extracción (selectores reales de Farmatodo)
+// JavaScript de extracción (selectores reales de Farmatodo)
 EXTRACT_JS = """
 () => {
     const results = [];
     const seen = new Set();
 
-    // Metodo 1: selector nativo confirmado a.product-card__info-link
+    // Metodo 1: Selector nativo de Farmatodo
     const infoLinks = document.querySelectorAll('a.product-card__info-link');
     infoLinks.forEach(link => {
         const href = link.href || '';
         if (seen.has(href)) return;
         seen.add(href);
-        const paras = link.querySelectorAll('p');
-        const spans = link.querySelectorAll('span');
-        const card  = link.closest('ftd-card-product, [class*="card-product"], [class*="product-card"]');
-        const discEl = card ? card.querySelector('[class*="discount"],[class*="badge"],[class*="-off"],[class*="porcent"]') : null;
-        const imgEl  = card ? card.querySelector('img[src]') : null;
-        const brand  = paras[0] ? paras[0].innerText.trim() : '';
-        const name   = paras[1] ? paras[1].innerText.trim() : (paras[0] ? paras[0].innerText.trim() : '');
-        const price  = spans[0] ? spans[0].innerText.trim() : '';
-        const oldPr  = spans[1] ? spans[1].innerText.trim() : '';
-        const disc   = discEl  ? discEl.innerText.trim()    : '';
-        const img    = imgEl   ? imgEl.src : '';
-        if (name || price) results.push({name, brand, price, oldPrice: oldPr, discount: disc, link: href, image: img});
-    });
 
-    // Metodo 2: fallback cards genericas
-    if (results.length === 0) {
-        const sels = ['ftd-card-product','app-card-product','[class*="product-card"]','[class*="card-product"]'];
-        let cards = [];
-        for (const s of sels) { const f = [...document.querySelectorAll(s)]; if (f.length) { cards = f; break; } }
-        cards.forEach(card => {
-            const a = card.querySelector('a[href]');
-            const href = a ? a.href : '';
-            if (seen.has(href)) return;
-            seen.add(href);
-            const ps = [...card.querySelectorAll('p,h3,h4')];
-            const brand = ps[0] ? ps[0].innerText.trim() : '';
-            const name  = ps[1] ? ps[1].innerText.trim() : brand;
-            const sps   = [...card.querySelectorAll('span')].filter(s => /[0-9]/.test(s.innerText));
-            const price   = sps[0] ? sps[0].innerText.trim() : '';
-            const oldPrice = sps[1] ? sps[1].innerText.trim() : '';
-            const img = (card.querySelector('img') || {src:''}).src;
-            if (name || price) results.push({name, brand, price, oldPrice, discount:'', link: href, image: img});
-        });
-    }
+        const card = link.closest('ftd-card-product, [class*="card-product"], [class*="product-card"]');
+        if (!card) return;
+
+        const paras = link.querySelectorAll('p');
+        const brand = paras[0] ? paras[0].innerText.trim() : '';
+        const name  = paras[1] ? paras[1].innerText.trim() : brand;
+
+        // Lógica de precios inteligente:
+        // El precio final suele estar en un span con una clase específica o ser el primero encontrado.
+        const priceEls = Array.from(card.querySelectorAll('span')).filter(s => /[0-9]/.test(s.innerText));
+        
+        let price = '';
+        let oldPrice = '';
+        
+        if (priceEls.length >= 2) {
+            // Si hay dos números, el más grande o el tachado es el 'old', el otro es el 'current'
+            const p1 = priceEls[0].innerText.trim();
+            const p2 = priceEls[1].innerText.trim();
+            
+            // Si el segundo tiene estilo tachado (line-through) o es el primero el que destaca
+            if (priceEls[1].style.textDecoration === 'line-through' || priceEls[1].className.includes('old')) {
+                price = p1;
+                oldPrice = p2;
+            } else {
+                // Por defecto en Farmatodo, el precio nuevo suele ser el que resalta
+                price = p1;
+                oldPrice = p2;
+            }
+        } else if (priceEls.length === 1) {
+            price = priceEls[0].innerText.trim();
+        }
+
+        const discEl = card.querySelector('[class*="discount"],[class*="badge"],[class*="-off"],[class*="porcent"]');
+        const imgEl  = card.querySelector('img[src]');
+
+        if (name || price) {
+            results.push({
+                name, 
+                brand, 
+                price, 
+                oldPrice, 
+                discount: discEl ? discEl.innerText.trim() : '', 
+                link: href, 
+                image: imgEl ? imgEl.src : ''
+            });
+        }
+    });
     return results;
 }
 """
@@ -159,20 +173,26 @@ def _parse_product(raw: dict, subcat: str, search_query: str = "") -> dict | Non
     image = (raw.get("image") or raw.get("imageUrl") or
              raw.get("thumbnail") or raw.get("img") or "")
 
-    # Precio — puede venir en distintos formatos
-    price_raw = (raw.get("price") or raw.get("precio") or
-                 raw.get("salePrice") or raw.get("currentPrice") or 0)
-    if isinstance(price_raw, dict):
-        price_val = price_raw.get("value") or price_raw.get("amount") or price_raw.get("sale") or 0
-    else:
-        price_val = price_raw
+    # Precio — Priorizar el precio de oferta/final
+    # En la API de Farmatodo, 'price' suele ser el final y 'originalPrice' el tachado
+    price_val = (raw.get("salePrice") or raw.get("price") or 
+                 raw.get("precio") or raw.get("currentPrice") or 0)
+    
+    if isinstance(price_raw := raw.get("price"), dict):
+        price_val = price_raw.get("value") or price_raw.get("amount") or 0
 
-    old_raw = (raw.get("originalPrice") or raw.get("listPrice") or
+    old_val = (raw.get("originalPrice") or raw.get("listPrice") or
                raw.get("normalPrice") or raw.get("compareAtPrice") or 0)
-    if isinstance(old_raw, dict):
+    
+    if isinstance(old_raw := raw.get("originalPrice") or raw.get("listPrice"), dict):
         old_val = old_raw.get("value") or old_raw.get("amount") or 0
-    else:
-        old_val = old_raw
+
+    # Si por alguna razón el precio "final" es mayor al "original", intercambiarlos
+    try:
+        pv, ov = float(price_val), float(old_val)
+        if ov > 0 and pv > ov:
+            price_val, old_val = old_val, price_val
+    except: pass
 
     disc = raw.get("discount") or raw.get("discountPercentage") or ""
     if isinstance(disc, (int, float)) and disc:
