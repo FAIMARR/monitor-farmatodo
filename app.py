@@ -708,6 +708,9 @@ async def _scrape(session_id: str, urls: list[str], search_query: str = ""):
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
+                "--disable-accelerated-2d-canvas",
+                "--disable-gpu",
+                "--single-process",
             ]
         )
         context = await browser.new_context(
@@ -805,14 +808,17 @@ async def _scrape(session_id: str, urls: list[str], search_query: str = ""):
         await asyncio.sleep(3)
         await _dismiss(page)
 
-        # ── Recorrer URLs (EN PARALELO) ───────────────────────────
+        # ── Recorrer URLs (DE UNA EN UNA PARA AHORRAR RAM) ────────
         total_urls = len(urls)
-        sem = asyncio.Semaphore(2)  # Límite de pestañas concurrentes
+        sem = asyncio.Semaphore(1)  # Solo una pestaña a la vez
 
         async def process_url(url_idx, url):
             async with sem:
                 if sess.get("cancelled"):
                     return
+
+                # BLOQUEAR IMÁGENES PARA AHORRAR RAM
+                await context.route("**/*.{png,jpg,jpeg,gif,webp,svg}", lambda route: route.abort())
 
                 if "buscar?product=" in url:
                     m = re.search(r'product=([^&]+)', url)
