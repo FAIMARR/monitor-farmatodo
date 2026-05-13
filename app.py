@@ -760,16 +760,28 @@ async def _scrape(session_id: str, urls: list[str], search_query: str = ""):
             
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                # Scroll suave para activar la carga de productos
+                # Scroll para activar lazy-loading
                 await page.evaluate("window.scrollBy(0, 1000)")
-                await asyncio.sleep(3)
                 
-                # Esperar a que aparezca al menos un producto (opcional)
+                # Esperar a que aparezcan los productos
                 try:
-                    await page.wait_for_selector('a.product-card__info-link', timeout=5000)
+                    await page.wait_for_selector('a.product-card__info-link', timeout=8000)
                 except: pass
 
-                # Extraer datos usando el JS optimizado
+                # ── ESPERA INTELIGENTE DE PRECIOS ─────────────────────────
+                # Farmatodo aplica descuentos dinámicamente DESPUÉS de renderizar.
+                # Hacemos 2 extracciones y esperamos que los precios se estabilicen.
+                await asyncio.sleep(2)
+                snap1 = await page.evaluate("() => Array.from(document.querySelectorAll('a.product-card__info-link')).map(l => l.innerText).join('|')")
+                
+                await asyncio.sleep(3)  # Esperar que JS de descuentos termine
+                snap2 = await page.evaluate("() => Array.from(document.querySelectorAll('a.product-card__info-link')).map(l => l.innerText).join('|')")
+                
+                # Si el DOM cambió, esperamos un segundo más para asegurarnos
+                if snap1 != snap2:
+                    await asyncio.sleep(2)
+
+                # Extraer datos con precios ya finales
                 products = await page.evaluate(EXTRACT_JS)
                 for p in products:
                     key = p.get("link") or p.get("name")
