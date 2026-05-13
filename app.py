@@ -649,284 +649,54 @@ def _run_ai_analysis(ai_session_id: str, products: list[dict], api_key: str):
 
 async def _scrape(session_id: str, urls: list[str], search_query: str = ""):
     """
-    Scraper con INTERCEPCIÓN DE RED.
-    Captura respuestas de la API de Farmatodo (gw-backend-ve.farmatodo.com)
-    y de Algolia directamente, sin depender del scroll virtual del DOM.
-    También hace scroll para triggear todos los loads.
+    Versión ULTRA-LIGERA para Render Free.
+    Sin interceptación de red pesada, solo carga y extracción directa.
     """
     from playwright.async_api import async_playwright, TimeoutError as PWT
-
     sess = _sessions[session_id]
     q: Queue = sess["queue"]
-    page_to_subcat = {}  # Mapeo de objeto page -> nombre de subcategoría
-
+    
     def emit(event: str, data: dict):
         q.put({"event": event, "data": data})
 
-    all_products   = []
-    seen_keys: set = set()
+    all_products = []
+    seen_keys = set()
     now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-    def register_product(raw: dict, subcat: str):
-        """Intenta parsear y registrar un producto; permite actualizar si llega mejor info."""
-        p = _parse_product(raw, subcat, search_query)
-        if not p:
-            return False
-        key = p.get("link") or p.get("name", "")
-        if not key:
-            return False
-
-        p["timestamp"] = now_str
-
-        if key in seen_keys:
-            # Buscar el producto existente para ver si el nuevo tiene mejor información (ej. descuento)
-            for existing in all_products:
-                if (existing.get("link") == p["link"] or 
-                    (not p.get("link") and existing.get("name") == p["name"])):
-                    
-                    # ¿Tiene mejor información? (precio diferente o descuento nuevo)
-                    # Asumimos que si el precio cambia después de la carga inicial, es el precio final/descontado
-                    if p["price"] != existing["price"] or (p["discount"] and not existing["discount"]):
-                        existing.update(p)
-                        emit("product_update", p) # Notificar actualización al frontend
-                        return True
-                    break
-            return False
-
-        seen_keys.add(key)
-        all_products.append(p)
-        if "products" in sess:
-            sess["products"].append(p)  # Actualizar sesión en tiempo real
-        emit("product", p)
-        return True
-
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(
-            headless=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-accelerated-2d-canvas",
-                "--disable-gpu",
-                "--single-process",
-            ]
-        )
-        context = await browser.new_context(
-            viewport={"width": 1440, "height": 900},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            locale="es-VE",
-        )
-        page = await context.new_page()
-
-        # ── Interceptor de respuestas de red ──────────────────────
-        async def on_response(response):
+        browser = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--single-process"])
+        context = await browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        
+        for url_idx, url in enumerate(urls):
+            if sess.get("cancelled"): break
+            page = await context.new_page()
+            # Bloquear todo lo innecesario
+            await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,css,woff,woff2,map}", lambda r: r.abort())
+            
+            subcat = url.split("/")[-1].replace("-", " ").title()
+            pct_base = int(5 + (url_idx / len(urls)) * 85)
+            emit("status", {"msg": f"Buscando en {subcat}...", "pct": pct_base})
+            
             try:
-                url = response.url
-                status = response.status
-
-                # Solo respuestas JSON exitosas de APIs conocidas
-                is_farmatodo_api = "gw-backend-ve.farmatodo.com" in url
-                is_algolia       = "algolia" in url or "algolianet" in url
-                is_topsort       = "topsort" in url
-
-                if status != 200 or not (is_farmatodo_api or is_algolia or is_topsort):
-                    return
-
-                ct = response.headers.get("content-type", "")
-                if "json" not in ct:
-                    return
-
-                data = await response.json()
-                if not isinstance(data, (dict, list)):
-                    return
-
-                subcat = "General"
-                try:
-                    # Intentar obtener subcategoría de la página que originó la respuesta
-                    pg_obj = response.page
-                    if pg_obj in page_to_subcat:
-                        subcat = page_to_subcat[pg_obj]
-                    elif "departmentId=" in url:
-                        subcat = url.split("departmentId=")[-1].split("&")[0]
-                except Exception:
-                    pass
-
-                # ── Formato: lista directa de productos ──
-                if isinstance(data, list):
-                    for item in data:
-                        if isinstance(item, dict) and ("name" in item or "productName" in item):
-                            register_product(item, subcat)
-                    return
-
-                # ── Formato: objeto con distintas claves posibles ──
-                candidates = []
-
-                # Algolia: { results: [{ hits: [...] }] }
-                if "results" in data and isinstance(data["results"], list) and len(data["results"]) > 0:
-                    if "hits" in data["results"][0]:
-                        candidates = data["results"][0]["hits"]
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(2)
                 
-                # Algolia directo: { hits: [...] }
-                elif "hits" in data:
-                    candidates = data["hits"]
-
-                # Farmatodo API: { data: { products: [...] } }
-                elif isinstance(data.get("data"), dict):
-                    d = data["data"]
-                    for key in ("products", "items", "results", "data"):
-                        if isinstance(d.get(key), list):
-                            candidates = d[key]
-                            break
-                    if not candidates and isinstance(d, dict):
-                        if "name" in d or "productName" in d:
-                            candidates = [d]
-
-                # Directo: { products: [...] }
-                else:
-                    for key in ("products", "items", "records"):
-                        if isinstance(data.get(key), list):
-                            candidates = data[key]
-                            break
-
-                for item in candidates:
-                    if isinstance(item, dict):
-                        register_product(item, subcat)
-
-            except Exception:
-                pass  # Ignorar errores silenciosamente
-
-        context.on("response", on_response)
-
-        # ── Página principal → cookies/popups ─────────────────────
-        emit("status", {"msg": "Conectando con Farmatodo...", "pct": 2})
-        try:
-            await page.goto(BASE_URL, wait_until="domcontentloaded", timeout=40000)
-        except Exception:
-            pass
-        await asyncio.sleep(3)
-        await _dismiss(page)
-
-        # ── Recorrer URLs (DE UNA EN UNA PARA AHORRAR RAM) ────────
-        total_urls = len(urls)
-        sem = asyncio.Semaphore(1)  # Solo una pestaña a la vez
-
-        async def process_url(url_idx, url):
-            async with sem:
-                if sess.get("cancelled"):
-                    return
-
-                # BLOQUEAR IMÁGENES PARA AHORRAR RAM
-                await context.route("**/*.{png,jpg,jpeg,gif,webp,svg}", lambda route: route.abort())
-
-                if "buscar?product=" in url:
-                    m = re.search(r'product=([^&]+)', url)
-                    subcat = f"Búsqueda: {m.group(1).replace('%20', ' ')}".title() if m else "Búsqueda"
-                else:
-                    subcat = url.split("/")[-1].replace("-", " ").title()
-                pct_base = int(5 + (url_idx / total_urls) * 85)
-                emit("status", {"msg": f"Cargando: {subcat}...", "pct": pct_base})
-
-                page = await context.new_page()
-                page_to_subcat[page] = subcat  # Registrar subcategoría para esta página
+                # Extraer datos usando el JS optimizado
+                products = await page.evaluate(EXTRACT_JS)
+                for p in products:
+                    key = p.get("link") or p.get("name")
+                    if key and key not in seen_keys:
+                        p["timestamp"] = now_str
+                        p["subcategory"] = subcat
+                        seen_keys.add(key)
+                        all_products.append(p)
+                        emit("product", p)
                 
-                products_before = len(all_products)
-                try:
-                    await page.goto(url, wait_until="domcontentloaded", timeout=40000)
-                    await asyncio.sleep(2)
-                    await _dismiss(page)
-                    
-                    # Esperar primera aparición de productos
-                    try:
-                        await page.wait_for_selector(
-                            'a.product-card__info-link, ftd-card-product, '
-                            '[class*="product-card"], [class*="card-product"]',
-                            timeout=12000
-                        )
-                    except PWT:
-                        pass
-
-                    # ── Estrategia rápida: scroll al fondo en pasos grandes ──────
-                    prev_count = len(all_products)
-                    no_new_rounds = 0
-                    bottom_hit = 0
-
-                    for scroll_n in range(300): # Aumentado para categorías grandes
-                        if sess.get("cancelled"):
-                            break
-
-                        at_bottom = await page.evaluate("""
-                            () => {
-                                window.scrollBy(0, 1500);
-                                // Intentar click en "Cargar más" (por ID o por texto)
-                                const btn = document.querySelector('#group-view-load-more') || 
-                                            Array.from(document.querySelectorAll('button')).find(b => 
-                                                /Ver más|Cargar más|Mostrar más/i.test(b.textContent)
-                                            );
-                                
-                                if (btn && btn.offsetParent !== null) {
-                                    btn.click();
-                                    return false; 
-                                }
-                                return (window.scrollY + window.innerHeight) >= (document.body.scrollHeight - 300);
-                            }
-                        """)
-
-                        await asyncio.sleep(1.5)
-
-                        # Extraer del DOM como respaldo
-                        try:
-                            dom_raw = await page.evaluate(EXTRACT_JS)
-                            for item in dom_raw:
-                                key = item.get("link") or item.get("name", "")
-                                if key and key not in seen_keys:
-                                    item["subcategory"] = subcat
-                                    p = _parse_product(item, subcat, "")
-                                    if p:
-                                        p["timestamp"] = now_str
-                                        seen_keys.add(key)
-                                        all_products.append(p)
-                                        if "products" in sess:
-                                            sess["products"].append(p)
-                                        emit("product", p)
-                        except Exception:
-                            pass
-
-                        cur_count = len(all_products)
-                        pct_now   = min(pct_base + int((scroll_n / 300) * (85 // total_urls)), 90)
-                        emit("status", {"msg": f"{subcat}: {cur_count - products_before} productos...", "pct": pct_now})
-
-                        if cur_count == prev_count:
-                            no_new_rounds += 1
-                            # Mayor paciencia para carga lenta (12 rondas = ~20 segundos)
-                            if at_bottom and no_new_rounds >= 8:
-                                break
-                            elif no_new_rounds >= 12:
-                                break
-                        else:
-                            no_new_rounds = 0
-
-                        prev_count = cur_count
-
-                    emit("status", {
-                        "msg": f"{subcat}: {len(all_products) - products_before} productos extraidos",
-                        "pct": pct_base + int(85 // total_urls)
-                    })
-
-                except Exception as e:
-                    emit("status", {"msg": f"Error en {subcat}: {str(e)[:80]}", "pct": pct_base})
-                finally:
-                    await page.close()
-
-        tasks = [process_url(idx, u) for idx, u in enumerate(urls)]
-        await asyncio.gather(*tasks)
-
-        await browser.close()
+            except Exception: pass
+            finally: await page.close()
 
     sess["products"] = all_products
-    emit("done",   {"total": len(all_products)})
-    emit("status", {"msg": f"Completado — {len(all_products)} productos encontrados", "pct": 100})
+    emit("done", {"total": len(all_products)})
 
 
 def _run_scrape(session_id, urls, search_query):
