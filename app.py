@@ -95,32 +95,52 @@ EXTRACT_JS = """
         const brand = paras[0] ? paras[0].innerText.trim() : '';
         const name  = paras[1] ? paras[1].innerText.trim() : brand;
 
-        // Lógica de precios inteligente:
-        // El precio final suele estar en un span con una clase específica o ser el primero encontrado.
-        const priceEls = Array.from(card.querySelectorAll('span')).filter(s => /[0-9]/.test(s.innerText));
+        // Lógica de precios de Farmatodo (Actualizada)
+        const spans = Array.from(card.querySelectorAll('span'));
+        const priceEls = spans.filter(s => /[0-9]/.test(s.innerText) && s.innerText.includes('Bs.'));
         
         let price = '';
         let oldPrice = '';
-        
-        if (priceEls.length >= 2) {
-            // Si hay dos números, el más grande o el tachado es el 'old', el otro es el 'current'
-            const p1 = priceEls[0].innerText.trim();
-            const p2 = priceEls[1].innerText.trim();
-            
-            // Si el segundo tiene estilo tachado (line-through) o es el primero el que destaca
-            if (priceEls[1].style.textDecoration === 'line-through' || priceEls[1].className.includes('old')) {
-                price = p1;
-                oldPrice = p2;
-            } else {
-                // Por defecto en Farmatodo, el precio nuevo suele ser el que resalta
-                price = p1;
-                oldPrice = p2;
-            }
-        } else if (priceEls.length === 1) {
-            price = priceEls[0].innerText.trim();
+        let discount = '';
+
+        // 1. Identificar Precios (El más bajo suele ser el actual)
+        if (priceEls.length >= 1) {
+            const pricesFound = priceEls.map(el => ({
+                text: el.innerText.trim(),
+                val: parseFloat(el.innerText.replace(/[^0-9,]/g, '').replace(',', '.')) || 0,
+                isStriked: window.getComputedStyle(el).textDecoration.includes('line-through') || el.className.includes('old')
+            }));
+
+            // El precio actual es el que NO está tachado, o el menor de los encontrados
+            const current = pricesFound.find(p => !p.isStriked) || pricesFound.reduce((min, p) => p.val < min.val ? p : min, pricesFound[0]);
+            const old = pricesFound.find(p => p.isStriked || p.val > current.val);
+
+            price = current.text;
+            oldPrice = old ? old.text : '';
         }
 
-        const discEl = card.querySelector('[class*="discount"],[class*="badge"],[class*="-off"],[class*="porcent"]');
+        // 2. Identificar Descuento (Buscar porcentaje o calcular si el badge tiene el precio viejo)
+        const badge = card.querySelector('[class*="discount"],[class*="badge"],[class*="-off"],[class*="porcent"]');
+        if (badge) {
+            const bText = badge.innerText.trim();
+            if (bText.includes('%')) {
+                discount = bText;
+            } else if (oldPrice && price) {
+                // Si el badge tiene el precio viejo, calculamos el % nosotros
+                const pVal = parseFloat(price.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+                const oVal = parseFloat(oldPrice.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+                if (oVal > pVal) {
+                    discount = '-' + Math.round((1 - (pVal / oVal)) * 100) + '%';
+                }
+            } else if (bText.includes('Bs.')) {
+                // Si el badge tiene un precio y no teníamos oldPrice, lo asignamos
+                if (!oldPrice) oldPrice = bText;
+                // Y calculamos porcentaje si tenemos el actual
+                const pVal = parseFloat(price.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+                const oVal = parseFloat(bText.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+                if (oVal > pVal) discount = '-' + Math.round((1 - (pVal / oVal)) * 100) + '%';
+            }
+        }
         const imgEl  = card.querySelector('img[src]');
 
         if (name || price) {
