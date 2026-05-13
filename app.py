@@ -10,12 +10,16 @@ from queue import Queue, Empty
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
-from flask import Flask, Response, jsonify, request, send_file
+from flask import Flask, Response, jsonify, request, send_file, send_from_directory
 from flask_cors import CORS
 from playwright.async_api import async_playwright, TimeoutError as PWT
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+@app.route("/")
+def index():
+    return send_from_directory('static', 'index.html')
 
 BASE_URL = "https://www.farmatodo.com.ve"
 EXPORT_DIR = Path(__file__).parent / "exports"
