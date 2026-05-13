@@ -21,6 +21,14 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 def serve_index():
     return send_from_directory('.', 'index.html')
 
+@app.route("/style.css")
+def serve_css():
+    return send_from_directory('.', 'style.css')
+
+@app.route("/app.js")
+def serve_js():
+    return send_from_directory('.', 'app.js')
+
 BASE_URL = "https://www.farmatodo.com.ve"
 EXPORT_DIR = Path(__file__).parent / "exports"
 EXPORT_DIR.mkdir(exist_ok=True)
