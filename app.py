@@ -760,29 +760,63 @@ async def _scrape(session_id: str, urls: list[str], search_query: str = ""):
             
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                # Scroll para activar lazy-loading
-                await page.evaluate("window.scrollBy(0, 1000)")
                 
-                # Esperar a que aparezcan los productos
+                # Esperar a que aparezcan los primeros productos
                 try:
                     await page.wait_for_selector('a.product-card__info-link', timeout=8000)
                 except: pass
 
-                # ── ESPERA INTELIGENTE DE PRECIOS ─────────────────────────
-                # Farmatodo aplica descuentos dinámicamente DESPUÉS de renderizar.
-                # Hacemos 2 extracciones y esperamos que los precios se estabilicen.
+                # ── SCROLL COMPLETO HASTA EL FONDO ────────────────────────
+                # Farmatodo usa lazy-loading: los productos aparecen al hacer scroll.
+                prev_count = 0
+                no_change_rounds = 0
+                
+                for scroll_round in range(50):  # Máximo 50 rondas de scroll
+                    if sess.get("cancelled"): break
+                    
+                    # Scroll hacia abajo
+                    await page.evaluate("""
+                        () => {
+                            window.scrollBy(0, 800);
+                            // Click en "Ver más" / "Cargar más" si existe
+                            const btn = document.querySelector('#group-view-load-more') ||
+                                Array.from(document.querySelectorAll('button')).find(b =>
+                                    /ver m[aá]s|cargar m[aá]s|mostrar m[aá]s/i.test(b.textContent)
+                                );
+                            if (btn && btn.offsetParent !== null) btn.click();
+                        }
+                    """)
+                    await asyncio.sleep(1.2)
+                    
+                    # Contar productos actuales en el DOM
+                    cur_count = await page.evaluate(
+                        "() => document.querySelectorAll('a.product-card__info-link').length"
+                    )
+                    
+                    # Si no hay nuevos productos en 5 rondas consecutivas, estamos al fondo
+                    if cur_count == prev_count:
+                        no_change_rounds += 1
+                        if no_change_rounds >= 5:
+                            break
+                    else:
+                        no_change_rounds = 0
+                    
+                    prev_count = cur_count
+                    pct_now = min(pct_base + int((scroll_round / 50) * 40), pct_base + 40)
+                    emit("status", {"msg": f"Cargando {subcat}: {cur_count} productos...", "pct": pct_now})
+
+                # ── ESPERA INTELIGENTE: dejar que los descuentos se apliquen ──
                 await asyncio.sleep(2)
                 snap1 = await page.evaluate("() => Array.from(document.querySelectorAll('a.product-card__info-link')).map(l => l.innerText).join('|')")
-                
-                await asyncio.sleep(3)  # Esperar que JS de descuentos termine
+                await asyncio.sleep(3)
                 snap2 = await page.evaluate("() => Array.from(document.querySelectorAll('a.product-card__info-link')).map(l => l.innerText).join('|')")
-                
-                # Si el DOM cambió, esperamos un segundo más para asegurarnos
                 if snap1 != snap2:
                     await asyncio.sleep(2)
 
-                # Extraer datos con precios ya finales
+                # ── EXTRACCIÓN FINAL con precios ya estabilizados ──────────
                 products = await page.evaluate(EXTRACT_JS)
+                emit("status", {"msg": f"{subcat}: {len(products)} productos encontrados", "pct": pct_base + 45})
+                
                 for p in products:
                     key = p.get("link") or p.get("name")
                     if key and key not in seen_keys:
