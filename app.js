@@ -1026,9 +1026,82 @@ localStorage.setItem = function(key, value) {
   if (key === "ftd_watchlist") syncWatchlistToBackend();
 };
 
+// ── MERCADO EN VIVO (LIVE PRICES) ────────────────
+let previousPrices = {};
+
+async function loadLivePrices() {
+  const container = document.getElementById("liveMarketGrid");
+  if (!container) return;
+
+  const tabAlerts = document.getElementById("tab-alerts");
+  if (tabAlerts && tabAlerts.style.display === "none") return;
+
+  try {
+    const res = await fetch("/api/monitor/prices");
+    const currentPrices = await res.json();
+    
+    if (Object.keys(currentPrices).length === 0) {
+      container.innerHTML = '<div class="history-empty">Esperando datos del mercado en vivo...</div>';
+      return;
+    }
+
+    let needFullRender = (container.children.length === 0 || (container.children.length === 1 && container.children[0].className === "history-empty"));
+
+    if (needFullRender) {
+      container.innerHTML = "";
+    }
+
+    for (const [sku, data] of Object.entries(currentPrices)) {
+      const priceVal = data.price_val || 0;
+      let flashClass = "";
+
+      if (previousPrices[sku] !== undefined && previousPrices[sku] !== priceVal) {
+        if (priceVal < previousPrices[sku]) flashClass = "flash-green";
+        else flashClass = "flash-red";
+      }
+
+      previousPrices[sku] = priceVal;
+
+      if (needFullRender) {
+        const card = document.createElement("div");
+        card.className = "live-market-card";
+        card.id = `lm-card-${sku.replace(/[^a-zA-Z0-9]/g, '')}`;
+        card.innerHTML = `
+          <div class="lm-name" title="${escHtml(data.name)}">${escHtml(data.name)}</div>
+          <div class="lm-price" id="lm-price-${sku.replace(/[^a-zA-Z0-9]/g, '')}">${escHtml(data.price_str)}</div>
+          <div class="lm-time" id="lm-time-${sku.replace(/[^a-zA-Z0-9]/g, '')}">Act: ${escHtml(data.last_seen || "N/A")}</div>
+        `;
+        container.appendChild(card);
+      } else {
+        const cleanSku = sku.replace(/[^a-zA-Z0-9]/g, '');
+        const card = document.getElementById(`lm-card-${cleanSku}`);
+        if (card) {
+          const priceEl = document.getElementById(`lm-price-${cleanSku}`);
+          const timeEl = document.getElementById(`lm-time-${cleanSku}`);
+          
+          if (priceEl && priceEl.textContent !== data.price_str) {
+            priceEl.textContent = data.price_str;
+            if (flashClass) {
+              card.classList.remove("flash-green", "flash-red");
+              void card.offsetWidth; 
+              card.classList.add(flashClass);
+            }
+          }
+          if (timeEl) timeEl.textContent = `Act: ${escHtml(data.last_seen || "N/A")}`;
+        } else {
+          needFullRender = true; // For next tick
+        }
+      }
+    }
+  } catch(e) { console.error("Error loading live prices:", e); }
+}
+
+setInterval(loadLivePrices, 10000); // 10s poll para mercado en vivo
+
 setInterval(loadAlerts, 30000); // Polling más rápido (30s)
 loadAlerts();
 loadTicker();
+loadLivePrices();
 
 async function initMonitorUI() {
   try {

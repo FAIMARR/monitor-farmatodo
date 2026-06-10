@@ -541,16 +541,28 @@ def _monitor_loop_sync():
                             """
                             _send_email_notification(subject, html)
                     
-                    history[sku] = {
-                        "name": current.get("name"), "price_str": new_price_str,
-                        "price_val": new_price_val, "last_seen": datetime.now().strftime("%H:%M:%S")
-                    }
+                    if sku not in history:
+                        history[sku] = {"name": current.get("name"), "price_history": []}
+                    if "price_history" not in history[sku]:
+                        history[sku]["price_history"] = []
+                    
+                    history[sku]["price_history"].append({
+                        "price_str": new_price_str,
+                        "price_val": new_price_val,
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    })
+                    
+                    history[sku]["name"] = current.get("name")
+                    history[sku]["price_str"] = new_price_str
+                    history[sku]["price_val"] = new_price_val
+                    history[sku]["last_seen"] = datetime.now().strftime("%H:%M:%S")
+                    
                     _save_json(PRICE_DB_FILE, history)
 
                 time.sleep(10) # Pausa entre productos
 
-            # Esperar 30 min
-            for _ in range(180):
+            # Esperar 3 horas
+            for _ in range(1080):
                 if not _monitor_active: break
                 time.sleep(10)
 
@@ -1384,6 +1396,10 @@ def get_alerts():
 def clear_alerts():
     _save_json(ALERTS_FILE, [])
     return jsonify({"ok": True})
+
+@app.route("/api/monitor/prices", methods=["GET"])
+def get_live_prices():
+    return jsonify(_load_json(PRICE_DB_FILE, {}))
 
 
 @app.route("/api/email/config", methods=["GET"])
